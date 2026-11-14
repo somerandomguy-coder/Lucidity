@@ -16,13 +16,17 @@ and photos never leave your device.
    upright, mirrored). Change an assumption and the numbers update instantly, without
    re-running the models.
 4. **3D scene.** Press **Build 3D scene**. The subject appears as a plain mannequin with the
-   solved pose and head direction; a photo cut-out and skeleton are optional.
-   - **Overview:** orbit around the scene, with a live inset showing what the virtual camera sees.
-   - **Camera view:** look through the virtual camera, game-style (drag to look, WASD/QE to move).
+   solved pose and head direction. The face can be a simple clay head, your face shape from
+   the face mesh, or that shape coloured from the photo. A photo cut-out and skeleton are
+   optional layers.
+   - **Overview:** grab the photo's camera and drag it around the floor (Shift-drag moves it
+     up or down). It re-frames like a photographer would, and a live inset shows what it now
+     sees. A ghost marks the original position.
+   - **Camera view:** look through the camera, game-style (drag to look, WASD/QE to move).
    - **Original shot:** the solved camera with the photo overlaid.
 
-   Sliders move the virtual camera (side angle, distance, height, tilt, roll, lens, dolly
-   zoom), and its numbers update live next to the original shot's.
+   Sliders also move the camera (side angle, distance, height, tilt, roll, lens, dolly zoom),
+   and its numbers update live next to the original shot's.
 
 The design plan is `CamPose Web — Camera Angle & Position from a Photo.md`, and the places
 where the implementation differs from it are in [docs/decisions.md](docs/decisions.md).

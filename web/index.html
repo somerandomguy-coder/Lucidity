@@ -184,7 +184,7 @@
   <div class="v-top">
     <div class="seg" role="group" aria-label="View">
       <button type="button" data-mode="orbit" class="on" title="Look at the whole scene (1)">Overview</button>
-      <button type="button" data-mode="camera" title="Look through the virtual camera (2)">Camera view</button>
+      <button type="button" data-mode="camera" title="Look through the camera (2)">Camera view</button>
       <button type="button" data-mode="photo" title="The solved camera of the photo (3)">Original shot</button>
     </div>
     <div class="seg" role="group" aria-label="Subject">
@@ -192,13 +192,18 @@
       <button type="button" data-layer="cutout" title="Photo cut-out of the person">Photo cut-out</button>
       <button type="button" data-layer="skeleton" title="Joints and face points">Skeleton</button>
     </div>
+    <div class="seg" role="group" aria-label="Face detail" id="vFaceSeg" hidden>
+      <button type="button" data-face="simple" class="on" title="Plain clay head with nose and eyes">Simple face</button>
+      <button type="button" data-face="clay" title="Your face shape from the face mesh, in clay">Face shape</button>
+      <button type="button" data-face="photo" title="Your face shape coloured from the photo">Face + colour</button>
+    </div>
     <label class="v-check" id="vOpacityWrap" hidden>Photo <input type="range" id="vOpacity" min="0" max="1" step="0.01" value="0.5"></label>
   </div>
   <button type="button" class="btn icon" id="vClose" aria-label="Close 3D view">✕</button>
 
   <aside class="v-panel" id="vPanel">
     <div class="v-panel-head">
-      <h4>Virtual camera</h4>
+      <h4>Camera</h4>
       <button type="button" class="v-collapse" id="vCollapse" aria-expanded="true" aria-controls="vPanelBody" title="Hide panel">▾</button>
     </div>
     <div id="vPanelBody">
@@ -211,7 +216,7 @@
       <div class="v-lens-row"><span>Lens</span><div class="seg lens" role="group" aria-label="Lens" id="vLens"></div></div>
       <label class="v-row-check"><input type="checkbox" id="vDolly"> Dolly zoom (keep subject size)</label>
       <div class="v-btns">
-        <button type="button" class="btn" id="vReset">Reset to photo</button>
+        <button type="button" class="btn" id="vReset">Back to original</button>
         <button type="button" class="btn primary" id="vLook">Look through it</button>
       </div>
       <div id="vHud" class="v-hud"></div>

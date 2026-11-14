@@ -17,6 +17,8 @@ const CACHE = 'campose-models-v1';
 export const ANALYSIS_MAX = 1024;
 
 let vision = null;
+let tvModule = null;
+let faceTris = null;
 let poseLm = null;
 let faceLm = null;
 let loadedKey = '';
@@ -54,6 +56,7 @@ export async function loadModels(settings, onProgress) {
   const key = `${settings.model}|${settings.processor}`;
   if (key === loadedKey && poseLm && faceLm) return;
   const mod = await import(`${TV_BASE}/vision_bundle.mjs`);
+  tvModule = mod;
   if (!vision) vision = await mod.FilesetResolver.forVisionTasks(`${TV_BASE}/wasm`);
   const parts = [0, 0];
   const report = () => onProgress?.((parts[0] + parts[1]) / 2);
@@ -239,6 +242,27 @@ export async function preparePhotoFor3D(file, maxSide = 1280) {
   }
   bmp.close();
   return { photo, cutout, w, h };
+}
+
+/**
+ * Triangles of MediaPipe's 468-point face mesh, rebuilt from its tessellation edge list
+ * (every triangle is a 3-cycle of edges). Uint16Array of vertex indices, cached.
+ */
+export function faceTriangles() {
+  if (faceTris) return faceTris;
+  const edges = tvModule?.FaceLandmarker?.FACE_LANDMARKS_TESSELATION;
+  if (!edges) return null;
+  const adj = Array.from({ length: 478 }, () => new Set());
+  for (const { start, end } of edges) { adj[start].add(end); adj[end].add(start); }
+  const out = [];
+  for (let a = 0; a < 478; a++) {
+    for (const b of adj[a]) {
+      if (b <= a) continue;
+      for (const c of adj[b]) if (c > b && adj[a].has(c)) out.push(a, b, c);
+    }
+  }
+  faceTris = new Uint16Array(out);
+  return faceTris;
 }
 
 export { HDR };

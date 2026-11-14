@@ -10,6 +10,7 @@ const len = (a) => Math.hypot(a[0], a[1], a[2]);
 const norm = (a) => { const l = len(a) || 1; return [a[0] / l, a[1] / l, a[2] / l]; };
 const mid = (a, b) => mul(add(a, b), 0.5);
 const lerp = (a, b, t) => add(a, mul(sub(b, a), t));
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 function perp(d) {
   const p = Math.abs(d[1]) < 0.9 ? [0, 1, 0] : [1, 0, 0];
   const x = norm(cross(d, p));
@@ -92,7 +93,10 @@ class Builder {
   out() { return { pos: new Float32Array(this.p), nrm: new Float32Array(this.n), col: new Float32Array(this.c) }; }
 }
 
-/** Head pose (centre, axes, size) from face points if present, else from body landmarks. */
+/**
+ * Head pose (centre, axes, radii) from the face points if present, else from body landmarks.
+ * With face points the clay head is fitted to the measured face width and height.
+ */
 function headPose(J, face) {
   if (face) {
     const F = (i) => [face[i * 3], face[i * 3 + 1], face[i * 3 + 2]];
@@ -101,10 +105,15 @@ function headPose(J, face) {
     const faceH = len(Y);
     Y = norm(sub(Y, mul(X, dot(Y, X))));
     const Z = cross(X, Y);                         // face forward
-    const eyes = mid(F(468), F(473));
-    const s = Math.min(1.3, Math.max(0.75, faceH / 0.19));
-    const c = add(add(eyes, mul(Z, -0.075 * s)), mul(Y, 0.015 * s));
-    return { c, X, Y, Z, s };
+    const cheekW = Math.abs(dot(sub(F(454), F(234)), X)); // face width at the cheekbones
+    const rx = clamp(cheekW * 0.56, 0.055, 0.1);
+    const ry = clamp(faceH * 0.66, 0.08, 0.15);    // forehead mark is below the top of the head
+    const rz = clamp(rx * 1.3, 0.07, 0.13);
+    // front of the head = the face surface; centre sits one depth-radius behind the nose bridge
+    const bridge = F(168);
+    const chinToTop = add(F(152), mul(Y, ry));
+    const c = add(add(bridge, mul(Z, -rz * 0.92)), mul(Y, dot(sub(chinToTop, bridge), Y) * 0.55));
+    return { c, X, Y, Z, rx, ry, rz, s: ry / 0.105 };
   }
   if (!J) return null;
   const P = (i) => J(i);
@@ -113,26 +122,60 @@ function headPose(J, face) {
   let Z = sub(P(0), earMid);                       // towards the nose
   Z = norm(sub(Z, mul(X, dot(Z, X))));
   const Y = cross(Z, X);
-  const s = Math.min(1.3, Math.max(0.75, len(sub(P(7), P(8))) / 0.15));
-  return { c: add(earMid, mul(Y, 0.01)), X, Y, Z, s };
+  const s = clamp(len(sub(P(7), P(8))) / 0.15, 0.75, 1.3);
+  return { c: add(earMid, mul(Y, 0.01)), X, Y, Z, rx: 0.075 * s, ry: 0.105 * s, rz: 0.095 * s, s };
+}
+
+/** Face surface from the 468 mesh points (smooth normals, pointing away from the head centre). */
+function addFaceSurface(b, face, tris, colors, centre) {
+  const P = (i) => [face[i * 3], face[i * 3 + 1], face[i * 3 + 2]];
+  const nrm = Array.from({ length: 478 }, () => [0, 0, 0]);
+  const T = [];
+  for (let k = 0; k < tris.length; k += 3) {
+    let [i, j, l] = [tris[k], tris[k + 1], tris[k + 2]];
+    if (i >= 468 || j >= 468 || l >= 468) continue; // skip iris points
+    let n = cross(sub(P(j), P(i)), sub(P(l), P(i)));
+    const ctr = mul(add(add(P(i), P(j)), P(l)), 1 / 3);
+    if (dot(n, sub(ctr, centre)) < 0) { [j, l] = [l, j]; n = mul(n, -1); }
+    for (const v of [i, j, l]) nrm[v] = add(nrm[v], n);
+    T.push([i, j, l]);
+  }
+  const N = nrm.map(norm);
+  const col = (v) => (colors ? [colors[v * 4], colors[v * 4 + 1], colors[v * 4 + 2]] : CLAY);
+  for (const [i, j, l] of T) {
+    // per-vertex colour: push each corner with its own colour
+    b.p.push(...P(i), ...P(j), ...P(l));
+    b.n.push(...N[i], ...N[j], ...N[l]);
+    b.c.push(...col(i), ...col(j), ...col(l));
+  }
 }
 
 /**
  * joints: flat [33*3] in subject frame W (or null), w8: per-joint confidence,
- * face: flat [478*3] in W (or null). Returns mesh arrays.
+ * face: flat [478*3] in W (or null).
+ * opts.faceMode: 'simple' (clay egg with nose and eyes), 'clay' (your face mesh in clay),
+ * 'photo' (your face mesh coloured from the photo). opts.faceTris / opts.faceColors feed the
+ * detailed modes. Returns mesh arrays.
  */
-export function buildMannequin(joints, w8, face) {
+export function buildMannequin(joints, w8, face, opts = {}) {
   const b = new Builder();
   const J = joints ? (i) => [joints[i * 3], joints[i * 3 + 1], joints[i * 3 + 2]] : null;
   const head = headPose(J, face);
+  const detailed = face && opts.faceTris && opts.faceMode && opts.faceMode !== 'simple';
   if (head) {
-    const { c, X, Y, Z, s } = head;
-    b.ellipsoid(c, X, Y, Z, 0.075 * s, 0.105 * s, 0.095 * s, CLAY);
-    // nose and eyes make the facing direction obvious from any angle
-    const nose = add(add(c, mul(Z, 0.1 * s)), mul(Y, -0.02 * s));
-    b.ellipsoid(nose, X, Y, Z, 0.014 * s, 0.026 * s, 0.022 * s, CLAY, 5, 8);
-    for (const side of [-1, 1]) {
-      b.sphere(add(add(add(c, mul(Z, 0.083 * s)), mul(X, side * 0.032 * s)), mul(Y, 0.012 * s)), 0.011 * s, DARK);
+    const { c, X, Y, Z, rx, ry, rz, s } = head;
+    if (detailed) {
+      // back of the head stays clay; the real face surface sits on its front
+      b.ellipsoid(add(add(c, mul(Z, -0.012)), mul(Y, 0.006)), X, Y, Z, rx * 0.99, ry * 1.03, rz * 0.94, CLAY);
+      addFaceSurface(b, face, opts.faceTris, opts.faceMode === 'photo' ? opts.faceColors : null, c);
+    } else {
+      b.ellipsoid(c, X, Y, Z, rx, ry, rz, CLAY);
+      // nose and eyes make the facing direction obvious from any angle
+      const nose = add(add(c, mul(Z, rz * 1.05)), mul(Y, -0.2 * ry));
+      b.ellipsoid(nose, X, Y, Z, 0.014 * s, 0.026 * s, 0.022 * s, CLAY, 5, 8);
+      for (const side of [-1, 1]) {
+        b.sphere(add(add(add(c, mul(Z, rz * 0.87)), mul(X, side * rx * 0.43)), mul(Y, 0.11 * ry)), 0.011 * s, DARK);
+      }
     }
   }
   if (J) {
@@ -151,7 +194,7 @@ export function buildMannequin(joints, w8, face) {
     };
     b.loft([ring(-0.08, 1.25, 0.095), ring(0.3, 1.05, 0.09), ring(0.62, 1.05, 0.105), ring(0.9, 0.92, 0.1), ring(1.02, 0.7, 0.07)], tone(CLAY, 11, 12, 23, 24));
     // neck to head
-    if (head) b.limb(add(shM, mul(up, 0.02)), add(head.c, mul(head.Y, -0.06 * head.s)), 0.05, 0.045, CLAY, 8);
+    if (head) b.limb(add(shM, mul(up, 0.02)), add(head.c, mul(head.Y, -0.6 * head.ry)), 0.05, 0.045, CLAY, 8);
     const arm = (s, e, w, hIdx, col) => {
       b.limb(J(s), J(e), 0.048, 0.042, tone(col, s, e));
       b.limb(J(e), J(w), 0.04, 0.032, tone(col, e, w));
@@ -168,7 +211,15 @@ export function buildMannequin(joints, w8, face) {
     leg(24, 26, 28, 30, 32, RIGHT);
   } else if (head) {
     // face-only photo: a neck stub so the head doesn't float
-    b.limb(add(head.c, mul(head.Y, -0.07 * head.s)), add(head.c, mul(head.Y, -0.2 * head.s)), 0.05, 0.055, CLAY, 8);
+    b.limb(add(head.c, mul(head.Y, -0.65 * head.ry)), add(head.c, mul(head.Y, -1.9 * head.ry)), 0.05, 0.055, CLAY, 8);
   }
+  return b.out();
+}
+
+/** A small grabbable camera body (rounded body + lens) at pos, looking along fwd. */
+export function buildCameraBody(pos, right, up, fwd, col = [0.37, 0.88, 0.82]) {
+  const b = new Builder();
+  b.ellipsoid(add(pos, mul(fwd, -0.03)), right, up, fwd, 0.075, 0.05, 0.04, col, 6, 12);
+  b.limb(add(pos, mul(fwd, 0.0)), add(pos, mul(fwd, 0.07)), 0.032, 0.028, col.map((v) => v * 0.55), 12);
   return b.out();
 }

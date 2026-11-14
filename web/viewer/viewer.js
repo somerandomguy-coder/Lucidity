@@ -8,7 +8,8 @@
 // The virtual camera is driven by sliders, keyboard, mouse or touch, and its numbers
 // (tilt, height vs eyes, distance, side angle) update live.
 import { M4, Lines, Points, TexQuad, Grid, Mesh } from './gl.js';
-import { buildMannequin } from './mannequin.js';
+import { buildMannequin, buildCameraBody } from './mannequin.js';
+import { faceTriangles } from '../landmarks.js';
 
 const $ = (s) => document.querySelector(s);
 const V3 = {
@@ -52,7 +53,8 @@ export function openViewer(photo, assets, onClose) {
 
   // ---------- static scene ----------
   const skel = new Lines(gl), pts = new Points(gl), facePts = new Points(gl), grid = new Grid(gl);
-  const photoLines = new Lines(gl), virtLines = new Lines(gl), body = new Mesh(gl);
+  const photoLines = new Lines(gl), virtLines = new Lines(gl), body = new Mesh(gl), camBody = new Mesh(gl);
+  let faceCols = null;
   const joints = sc.joints_w, w8 = sc.joint_w8 || [];
   if (joints) {
     const J = (i) => [joints[i * 3], joints[i * 3 + 1], joints[i * 3 + 2]];
@@ -80,8 +82,11 @@ export function openViewer(photo, assets, onClose) {
       cols.push(img[o] / 255, img[o + 1] / 255, img[o + 2] / 255, 1);
     }
     facePts.set(new Float32Array(sc.face_w), cols);
+    faceCols = cols;
   }
-  body.set(buildMannequin(joints, w8, sc.face_w));
+  let faceMode = 'simple';
+  const rebuildBody = () => body.set(buildMannequin(joints, w8, sc.face_w, { faceMode, faceTris: faceTriangles(), faceColors: faceCols }));
+  rebuildBody();
   // photo cut-out parallel to the image plane at the subject's depth
   const subjDepth = joints
     ? toC([(joints[69] + joints[72]) / 2, (joints[70] + joints[73]) / 2, (joints[71] + joints[74]) / 2])[2]
@@ -94,7 +99,7 @@ export function openViewer(photo, assets, onClose) {
   const camFoot = [photoCam.pos[0], 0, photoCam.pos[2]];
   const eyeFoot = [eye[0], 0, eye[2]];
   {
-    const fc = cornersAt(planeZ), col = [1, 0.7, 0.36, 1], segs = [];
+    const fc = cornersAt(planeZ), col = [1, 0.7, 0.36, 0.75], segs = [];
     for (const q of fc) segs.push({ a: photoCam.pos, b: q, c: col });
     [[0, 1], [1, 3], [3, 2], [2, 0]].forEach(([a, b]) => segs.push({ a: fc[a], b: fc[b], c: col }));
     segs.push({ a: photoCam.pos, b: eye, c: [1, 0.85, 0.5, 0.9], dash: 0.08 });
@@ -140,6 +145,21 @@ export function openViewer(photo, assets, onClose) {
     const a = anglesFrom(V3.norm(V3.sub(eye, vcam.pos)));
     vcam.yaw = a.yaw; vcam.pitch = a.pitch;
   };
+  /** Direction angles from the camera to the eyes. */
+  const eyeAngles = (pos) => anglesFrom(V3.norm(V3.sub(eye, pos)));
+  /**
+   * After the camera moves, turn it by however much the direction to the eyes turned, so the
+   * subject stays where it was in the frame (like a photographer re-framing).
+   */
+  const reframe = (oldPos) => {
+    if (vcam.aim) { aimAtEyes(); return; }
+    const a0 = eyeAngles(oldPos), a1 = eyeAngles(vcam.pos);
+    let dy = a1.yaw - a0.yaw;
+    dy = Math.atan2(Math.sin(dy), Math.cos(dy));
+    vcam.yaw += dy;
+    vcam.pitch = clamp(vcam.pitch + (a1.pitch - a0.pitch), -1.55, 1.55);
+  };
+
   // overview orbit camera
   const target0 = [eye[0], eye[1] * 0.6, eye[2]];
   const orbit = { target: target0.slice(), dist: Math.max(3, camDist * 1.6), yaw: 0, pitch: 0.35 };
@@ -217,6 +237,7 @@ export function openViewer(photo, assets, onClose) {
     return M4.fromIntrinsics(fpx, fpx, w / 2, h / 2, w, h);
   };
 
+  let grab = null; // camera being dragged in Overview
   let dirty = true, raf = 0;
   function requestRender() { dirty = true; if (!raf) raf = requestAnimationFrame(frame); }
   const keys = new Set();
@@ -250,7 +271,7 @@ export function openViewer(photo, assets, onClose) {
     if (layers.cutout && cutout) cutout.draw(V, P, 0.5, 1);
     if (layers.skeleton) { skel.draw(V, P, opts.w, opts.h, 3 * dpr); pts.draw(V, P, 3 * dpr); facePts.draw(V, P, 2 * dpr); }
     if (opts.photoCam) { photoPlane.draw(V, P, 0, 0.92); photoLines.draw(V, P, opts.w, opts.h, 1.8 * dpr); }
-    if (opts.virtCam) virtLines.draw(V, P, opts.w, opts.h, 2 * dpr);
+    if (opts.virtCam) { virtLines.draw(V, P, opts.w, opts.h, 2 * dpr); camBody.draw(V, P); }
     gl.depthMask(false);
     grid.draw(V, P, camPos, sc.ground_seen ? 1 : 0.55);
     gl.depthMask(true);
@@ -258,6 +279,7 @@ export function openViewer(photo, assets, onClose) {
 
   function updateVirtFrustum() {
     const b = vBasis();
+    camBody.set(buildCameraBody(vcam.pos, b.right, b.up, b.fwd, grab ? [0.6, 1, 0.94] : [0.37, 0.88, 0.82]));
     const p = vcam.pos;
     const fpx = vcam.f35 * Math.hypot(W, H) / DIAG35;
     const z = clamp(V3.len(V3.sub(p, eye)) * 0.12, 0.1, 0.45);
@@ -313,7 +335,7 @@ export function openViewer(photo, assets, onClose) {
       ui.pip.hidden = false;
       Object.assign(ui.pip.style, { width: `${pipW / dpr}px`, height: `${pipH / dpr}px`, left: '12px', bottom: narrow ? 'auto' : '12px', top: narrow ? `${pipTopCss}px` : 'auto' });
       if (mode === 'orbit') {
-        ui.pip.className = 'v-pip'; ui.pipLabel.textContent = 'Virtual camera sees'; pipPhoto.style.display = 'none';
+        ui.pip.className = 'v-pip'; ui.pipLabel.textContent = 'Camera sees'; pipPhoto.style.display = 'none';
         const glY = narrow ? vh - Math.round(pipTopCss * dpr) - pipH : Math.round(12 * dpr);
         gl.enable(gl.SCISSOR_TEST);
         gl.viewport(pipX, glY, pipW, pipH);
@@ -332,18 +354,22 @@ export function openViewer(photo, assets, onClose) {
     updatePanel();
   }
 
+  const moved = () => V3.len(V3.sub(vcam.pos, photoCam.pos)) > 0.05;
+  let lastVP = null;
   function updateLabels(V, P) {
+    lastVP = { V, P };
     const VP = M4.mul(P, V);
     const defs = mode === 'photo' ? [] : [
-      { key: 'cam', at: photoCam.pos, text: '📷 Original camera', click: () => setMode('photo') },
+      { key: 'cam', at: photoCam.pos, text: moved() ? 'Original position' : '', click: () => setMode('photo') },
       { key: 'eye', at: eye, text: 'Eyes' },
       { key: 'd', at: V3.lerp(camFoot, eyeFoot, 0.5), text: `${c.horizontal_distance_m.v.toFixed(2)} m` },
-      ...(mode === 'orbit' ? [{ key: 'vc', at: vcam.pos, text: '🎥 Virtual camera', click: () => setMode('camera') }] : []),
+      ...(mode === 'orbit' ? [{ key: 'vc', at: vcam.pos, text: '📷 Camera · drag to move' }] : []),
     ];
     const used = new Set(defs.map((d) => d.key));
     for (const k in labelEls) if (!used.has(k)) labelEls[k].style.display = 'none';
     for (const d of defs) {
       const e = mkLabel(d.key, d.text, d.click);
+      if (!d.text) { e.style.display = 'none'; continue; }
       const p = d.at;
       const x = VP[0] * p[0] + VP[4] * p[1] + VP[8] * p[2] + VP[12];
       const y = VP[1] * p[0] + VP[5] * p[1] + VP[9] * p[2] + VP[13];
@@ -398,13 +424,13 @@ export function openViewer(photo, assets, onClose) {
       let az = (k === 'az' ? v : m.az) / DEG;
       if (photo.mirrored) az = -az;
       const dh = Math.max(0.05, k === 'dist' ? v : m.dh);
-      const oldYawToEye = anglesFrom(V3.norm(V3.sub(eye, vcam.pos))).yaw;
+      const old = vcam.pos.slice();
       vcam.pos = [eye[0] + Math.sin(az) * dh, vcam.pos[1], eye[2] + Math.cos(az) * dh];
-      if (vcam.aim) aimAtEyes();
-      else vcam.yaw += anglesFrom(V3.norm(V3.sub(eye, vcam.pos))).yaw - oldYawToEye; // turn with the move
+      reframe(old);
     } else if (k === 'h') {
+      const old = vcam.pos.slice();
       vcam.pos = [vcam.pos[0], v, vcam.pos[2]];
-      if (vcam.aim) aimAtEyes();
+      reframe(old);
     } else if (k === 'tilt') {
       vcam.pitch = -v / DEG;
     } else if (k === 'roll') {
@@ -435,8 +461,8 @@ export function openViewer(photo, assets, onClose) {
     root.querySelectorAll('[data-mode]').forEach((b) => b.classList.toggle('on', b.dataset.mode === m));
     ui.opacityWrap.hidden = m !== 'photo';
     ui.help.innerHTML = m === 'orbit'
-      ? 'Drag to rotate · right-drag or Shift-drag to pan · wheel to zoom · <b>W A S D / Q E</b> move the virtual camera'
-      : m === 'camera' ? 'You are the virtual camera: drag to look · <b>W A S D</b> move · <b>Q / E</b> down / up · Shift faster · wheel forward/back'
+      ? '<b>Drag the camera</b> to move it (Shift-drag: up/down) · drag elsewhere to rotate the view · right-drag to pan · wheel to zoom'
+      : m === 'camera' ? 'You are the camera: drag to look · <b>W A S D</b> move · <b>Q / E</b> down / up · Shift faster · wheel forward/back'
         : 'The solved camera with the photo on top: use the slider to compare. Drag in the scene to take over as the virtual camera.';
     requestRender();
   }
@@ -456,18 +482,54 @@ export function openViewer(photo, assets, onClose) {
     if (keys.has('q') || keys.has('c')) mv = V3.sub(mv, [0, 1, 0]);
     if (V3.len(mv) < 1e-6) return false;
     if (mode === 'photo') setMode('camera');
+    const old = vcam.pos.slice();
     vcam.pos = V3.add(vcam.pos, V3.scale(V3.norm(mv), speed));
     vcam.pos[1] = Math.max(0.02, vcam.pos[1]);
-    if (vcam.aim) aimAtEyes();
+    // in Overview the keys move the camera and keep the subject framed
+    if (mode === 'orbit') reframe(old); else if (vcam.aim) aimAtEyes();
     return true;
   }
 
   const pointers = new Map();
   let drag = null, pinch = null;
+  /** Screen position (css px) of a world point in the current main view, or null. */
+  const screenOf = (p) => {
+    if (!lastVP) return null;
+    const VP = M4.mul(lastVP.P, lastVP.V);
+    const w = VP[3] * p[0] + VP[7] * p[1] + VP[11] * p[2] + VP[15];
+    if (w <= 0.05) return null;
+    const x = (VP[0] * p[0] + VP[4] * p[1] + VP[8] * p[2] + VP[12]) / w;
+    const y = (VP[1] * p[0] + VP[5] * p[1] + VP[9] * p[2] + VP[13]) / w;
+    const r = canvas.getBoundingClientRect();
+    return [r.left + (x * 0.5 + 0.5) * r.width, r.top + (1 - (y * 0.5 + 0.5)) * r.height];
+  };
+  const nearCamera = (e) => {
+    if (mode !== 'orbit') return false;
+    const sp = screenOf(vcam.pos);
+    return !!sp && Math.hypot(sp[0] - e.clientX, sp[1] - e.clientY) < 40;
+  };
+  /** World ray through a pointer position in the Overview camera. */
+  const pointerRay = (e) => {
+    const r = canvas.getBoundingClientRect();
+    const px = (e.clientX - r.left) * dpr, py = (e.clientY - r.top) * dpr;
+    const fpx = 24 * Math.hypot(vw, vh) / DIAG35;
+    const b = orbitBasis();
+    const d = V3.add(V3.add(V3.scale(b.right, (px - vw / 2) / fpx), V3.scale(b.up, -(py - vh / 2) / fpx)), V3.scale(b.back, -1));
+    return { o: orbitPos(), d: V3.norm(d) };
+  };
   const onDown = (e) => {
     canvas.setPointerCapture(e.pointerId);
     pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     drag = { x: e.clientX, y: e.clientY, btn: e.button, shift: e.shiftKey, id: e.pointerId };
+    if (pointers.size === 1 && nearCamera(e)) {
+      // grab the camera: drag along the floor; Shift or right button moves it up/down
+      const r0 = pointerRay(e);
+      const t = (vcam.pos[1] - r0.o[1]) / (Math.abs(r0.d[1]) > 1e-6 ? r0.d[1] : -1e-6);
+      const hit = V3.add(r0.o, V3.scale(r0.d, t));
+      grab = { vertical: e.shiftKey || e.button === 2, offset: V3.sub(vcam.pos, hit) };
+      canvas.style.cursor = 'grabbing';
+      requestRender();
+    }
     if (pointers.size === 2) pinch = null;
     canvas.focus();
   };
@@ -484,6 +546,24 @@ export function openViewer(photo, assets, onClose) {
     if (!drag || drag.id !== e.pointerId) return;
     const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
     drag.x = e.clientX; drag.y = e.clientY;
+    if (grab) {
+      const old = vcam.pos.slice();
+      if (grab.vertical || e.shiftKey) {
+        vcam.pos = [vcam.pos[0], clamp(vcam.pos[1] - dy * orbit.dist * 0.0022, 0.02, 20), vcam.pos[2]];
+      } else {
+        const r1 = pointerRay(e);
+        if (Math.abs(r1.d[1]) > 1e-3) {
+          const t = (vcam.pos[1] - r1.o[1]) / r1.d[1];
+          if (t > 0 && t < 200) {
+            const hit = V3.add(r1.o, V3.scale(r1.d, t));
+            vcam.pos = [hit[0] + grab.offset[0], vcam.pos[1], hit[2] + grab.offset[2]];
+          }
+        }
+      }
+      reframe(old);
+      requestRender();
+      return;
+    }
     if (mode === 'photo') setMode('camera');
     if (mode === 'orbit') {
       if (drag.btn === 2 || drag.shift) {
@@ -501,7 +581,16 @@ export function openViewer(photo, assets, onClose) {
     }
     requestRender();
   };
-  const onUp = (e) => { pointers.delete(e.pointerId); if (drag && drag.id === e.pointerId) drag = null; if (pointers.size < 2) pinch = null; };
+  const onUp = (e) => {
+    pointers.delete(e.pointerId);
+    if (drag && drag.id === e.pointerId) drag = null;
+    if (pointers.size < 2) pinch = null;
+    if (grab) { grab = null; canvas.style.cursor = ''; requestRender(); }
+  };
+  const onHover = (e) => {
+    if (drag || grab || e.pointerType === 'touch') return;
+    canvas.style.cursor = nearCamera(e) ? 'grab' : '';
+  };
   const zoomBy = (delta) => {
     if (mode === 'orbit') orbit.dist = clamp(orbit.dist * Math.exp(delta * 0.0012), 0.5, 40);
     else {
@@ -533,6 +622,7 @@ export function openViewer(photo, assets, onClose) {
   canvas.tabIndex = 0;
   canvas.addEventListener('pointerdown', onDown);
   canvas.addEventListener('pointermove', onMove);
+  canvas.addEventListener('pointermove', onHover);
   canvas.addEventListener('pointerup', onUp);
   canvas.addEventListener('pointercancel', onUp);
   canvas.addEventListener('wheel', onWheel, { passive: false });
@@ -548,6 +638,12 @@ export function openViewer(photo, assets, onClose) {
     if (!b || !root.contains(b)) return;
     if (b.dataset.mode) setMode(b.dataset.mode);
     if (b.dataset.lens) setLens(+b.dataset.lens);
+    if (b.dataset.face) {
+      faceMode = b.dataset.face;
+      root.querySelectorAll('[data-face]').forEach((x) => x.classList.toggle('on', x === b));
+      rebuildBody();
+      requestRender();
+    }
     if (b.dataset.layer) { layers[b.dataset.layer] = !layers[b.dataset.layer]; b.classList.toggle('on', layers[b.dataset.layer]); requestRender(); }
     if (b.id === 'vReset') { anim = null; resetToPhoto(); syncLens(); requestRender(); }
     if (b.id === 'vLook') setMode('camera');
@@ -558,6 +654,9 @@ export function openViewer(photo, assets, onClose) {
   const onOpacity = () => requestRender();
   ui.opacity.addEventListener('input', onOpacity);
   root.querySelector('[data-layer="cutout"]').hidden = !cutout;
+  const faceSeg = $('#vFaceSeg');
+  faceSeg.hidden = !(sc.face_w && faceTriangles());
+  faceSeg.querySelectorAll('[data-face]').forEach((x) => x.classList.toggle('on', x.dataset.face === faceMode));
   root.querySelectorAll('[data-layer]').forEach((b) => b.classList.toggle('on', !!layers[b.dataset.layer]));
   syncLens();
 
