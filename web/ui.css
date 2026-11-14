@@ -201,30 +201,50 @@ dialog::backdrop { background: rgba(5, 8, 12, .6); }
   background: rgba(10, 13, 18, .78); padding: 2px 7px; border-radius: 5px; color: #e8ebf1; border: 1px solid rgba(255, 255, 255, .08);
 }
 .v-top {
-  position: absolute; left: 12px; right: 58px; top: 12px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+  position: absolute; left: 12px; right: 330px; top: 12px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
 }
-#vClose { position: fixed; right: 12px; top: 12px; }
-.v-spacer { flex: 1; }
-.seg { display: inline-flex; background: rgba(18, 22, 30, .82); border: 1px solid rgba(255, 255, 255, .1); border-radius: 9px; padding: 3px; backdrop-filter: blur(6px); }
+#vClose { position: fixed; right: 12px; top: 12px; z-index: 2; }
+.seg { display: inline-flex; background: rgba(18, 22, 30, .82); border: 1px solid rgba(255, 255, 255, .1); border-radius: 9px; padding: 3px; backdrop-filter: blur(6px); flex-wrap: wrap; }
 .seg button { border: 0; background: none; color: #b9c1d0; padding: 5px 11px; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 12.5px; }
 .seg button.on { background: #4ea3ff; color: #06121f; }
-.seg.lens button.on { background: #ffb35c; }
+.seg.lens button { padding: 4px 8px; }
+.seg.lens button.on { background: #5ee0d0; }
 .v-check { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; background: rgba(18, 22, 30, .82); border: 1px solid rgba(255, 255, 255, .1); padding: 5px 10px; border-radius: 9px; }
 .viewer .btn { background: rgba(18, 22, 30, .82); color: #e8ebf1; border-color: rgba(255, 255, 255, .14); }
-.v-hud {
-  position: absolute; left: 12px; bottom: 12px; background: rgba(14, 17, 24, .85); border: 1px solid rgba(255, 255, 255, .1);
-  border-radius: 12px; padding: 10px 14px; font-size: 12.5px; font-variant-numeric: tabular-nums; min-width: 230px; backdrop-filter: blur(6px);
+.viewer .btn.primary { background: #5ee0d0; border-color: #5ee0d0; color: #04211d; }
+
+.v-panel {
+  position: absolute; right: 12px; top: 56px; width: 306px; max-height: calc(100% - 68px); overflow: auto;
+  background: rgba(14, 17, 24, .9); border: 1px solid rgba(255, 255, 255, .1); border-radius: 12px; padding: 10px 14px 12px;
+  backdrop-filter: blur(8px); font-size: 12.5px;
 }
-.v-hud h4 { margin: 0 0 6px; font-size: 12px; color: #8b94a6; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+.v-panel-head { display: flex; align-items: center; justify-content: space-between; }
+.v-panel h4 { margin: 0; font-size: 12px; color: #5ee0d0; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; }
+.v-collapse { background: none; border: 0; color: #8b94a6; font-size: 16px; cursor: pointer; padding: 2px 6px; }
+.v-panel.collapsed #vPanelBody { display: none; }
+.v-panel.collapsed .v-collapse { transform: rotate(-90deg); }
+.v-sl { display: grid; grid-template-columns: 74px 1fr 58px; align-items: center; gap: 8px; margin-top: 8px; }
+.v-sl label { color: #b9c1d0; }
+.v-sl input { width: 100%; accent-color: #5ee0d0; }
+.v-sl output { text-align: right; font-variant-numeric: tabular-nums; font-weight: 650; }
+.v-sl input:disabled { opacity: .4; }
+.v-row-check { display: flex; align-items: center; gap: 8px; margin-top: 10px; color: #d6dbe4; cursor: pointer; }
+.v-lens-row { display: flex; align-items: center; gap: 8px; margin-top: 10px; color: #b9c1d0; }
+.v-btns { display: flex; gap: 8px; margin-top: 12px; }
+.v-btns .btn { flex: 1; justify-content: center; height: 32px; font-size: 12.5px; }
+.v-hud { margin-top: 12px; border-top: 1px solid rgba(255, 255, 255, .08); padding-top: 8px; font-variant-numeric: tabular-nums; }
 .v-hud table { border-collapse: collapse; width: 100%; }
-.v-hud td { padding: 2px 0; }
-.v-hud td:last-child { text-align: right; font-weight: 650; padding-left: 14px; }
+.v-hud td { padding: 2px 0; color: #b9c1d0; }
+.v-hud td:last-child { text-align: right; font-weight: 650; color: #e8ebf1; padding-left: 10px; }
 .v-hud .delta { color: #8b94a6; font-weight: 500; font-size: 11.5px; }
-.v-help { position: absolute; right: 12px; bottom: 12px; font-size: 12px; color: #8b94a6; background: rgba(14, 17, 24, .7); padding: 6px 10px; border-radius: 8px; max-width: 46vw; text-align: right; }
-.v-pip { position: absolute; right: 12px; top: 60px; border-radius: 10px; overflow: hidden; border: 1px solid rgba(255, 255, 255, .14); background: #000; box-shadow: 0 8px 24px rgba(0, 0, 0, .4); }
-.v-pip canvas { display: block; max-width: 22vw; max-height: 26vh; }
-.v-pip span { position: absolute; left: 6px; bottom: 4px; font-size: 11px; background: rgba(0, 0, 0, .6); padding: 1px 6px; border-radius: 4px; }
-@media (max-width: 700px) {
+.v-pip { position: absolute; left: 12px; bottom: 12px; border: 2px solid #5ee0d0; border-radius: 8px; pointer-events: none; box-shadow: 0 8px 24px rgba(0, 0, 0, .4); }
+.v-pip.photo { border-color: #ffb35c; }
+.v-pip span { position: absolute; left: 6px; top: 4px; font-size: 11px; background: rgba(0, 0, 0, .65); padding: 1px 6px; border-radius: 4px; color: #e8ebf1; }
+.v-pip canvas { display: block; width: 100%; height: 100%; border-radius: 6px; }
+.v-help { position: absolute; right: 330px; bottom: 12px; font-size: 12px; color: #8b94a6; background: rgba(14, 17, 24, .7); padding: 6px 10px; border-radius: 8px; max-width: 40vw; text-align: right; }
+@media (max-width: 760px) {
+  .v-top { right: 56px; }
+  .v-panel { top: auto; bottom: 12px; left: 12px; right: 12px; width: auto; max-height: 46%; }
+  .v-pip { bottom: auto; top: 110px; }
   .v-help { display: none; }
-  .v-pip canvas { max-width: 30vw; }
 }

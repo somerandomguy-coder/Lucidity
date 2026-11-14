@@ -166,25 +166,44 @@
   <canvas id="glc"></canvas>
   <div id="labels" class="labels"></div>
   <div class="v-top">
-    <div class="seg" role="group" aria-label="Camera mode">
-      <button type="button" data-mode="fly" class="on">Fly</button>
-      <button type="button" data-mode="orbit">Orbit</button>
-      <button type="button" data-mode="photo">Photo camera</button>
+    <div class="seg" role="group" aria-label="View">
+      <button type="button" data-mode="orbit" class="on" title="Look at the whole scene (1)">Overview</button>
+      <button type="button" data-mode="camera" title="Look through the virtual camera (2)">Camera view</button>
+      <button type="button" data-mode="photo" title="The solved camera of the photo (3)">Original shot</button>
     </div>
-    <div class="seg lens" role="group" aria-label="Lens" id="vLens"></div>
-    <label class="v-check"><input type="checkbox" id="vDolly"> Dolly zoom</label>
-    <label class="v-check" id="vOpacityWrap" hidden>Photo <input type="range" id="vOpacity" min="0" max="1" step="0.01" value="0.6"></label>
-    <div class="v-spacer"></div>
-    <div class="seg" role="group" aria-label="Layers">
-      <button type="button" data-layer="cutout" class="on" title="Photo cut-out of the person">Cut-out</button>
-      <button type="button" data-layer="skeleton" class="on">Skeleton</button>
-      <button type="button" data-layer="frustum" class="on">Camera</button>
+    <div class="seg" role="group" aria-label="Subject">
+      <button type="button" data-layer="mannequin" class="on" title="Plain body and head shape">Mannequin</button>
+      <button type="button" data-layer="cutout" title="Photo cut-out of the person">Photo cut-out</button>
+      <button type="button" data-layer="skeleton" title="Joints and face points">Skeleton</button>
     </div>
-    <button type="button" class="btn icon" id="vClose" aria-label="Close 3D view">✕</button>
+    <label class="v-check" id="vOpacityWrap" hidden>Photo <input type="range" id="vOpacity" min="0" max="1" step="0.01" value="0.5"></label>
   </div>
-  <div class="v-hud" id="vHud"></div>
+  <button type="button" class="btn icon" id="vClose" aria-label="Close 3D view">✕</button>
+
+  <aside class="v-panel" id="vPanel">
+    <div class="v-panel-head">
+      <h4>Virtual camera</h4>
+      <button type="button" class="v-collapse" id="vCollapse" aria-expanded="true" aria-controls="vPanelBody" title="Hide panel">▾</button>
+    </div>
+    <div id="vPanelBody">
+      <div class="v-sl"><label for="sAz">Side angle</label><input type="range" id="sAz" min="-180" max="180" step="1"><output id="oAz"></output></div>
+      <div class="v-sl"><label for="sDist">Distance</label><input type="range" id="sDist" min="0.2" max="10" step="0.01"><output id="oDist"></output></div>
+      <div class="v-sl"><label for="sH">Height</label><input type="range" id="sH" min="0" max="4" step="0.01"><output id="oH"></output></div>
+      <div class="v-sl"><label for="sTilt">Tilt</label><input type="range" id="sTilt" min="-89" max="89" step="0.5"><output id="oTilt"></output></div>
+      <div class="v-sl"><label for="sRoll">Roll</label><input type="range" id="sRoll" min="-45" max="45" step="0.5"><output id="oRoll"></output></div>
+      <label class="v-row-check"><input type="checkbox" id="vAim" checked> Keep aimed at the eyes</label>
+      <div class="v-lens-row"><span>Lens</span><div class="seg lens" role="group" aria-label="Lens" id="vLens"></div></div>
+      <label class="v-row-check"><input type="checkbox" id="vDolly"> Dolly zoom (keep subject size)</label>
+      <div class="v-btns">
+        <button type="button" class="btn" id="vReset">Reset to photo</button>
+        <button type="button" class="btn primary" id="vLook">Look through it</button>
+      </div>
+      <div id="vHud" class="v-hud"></div>
+    </div>
+  </aside>
+
+  <div class="v-pip" id="vPip"><span id="vPipLabel"></span></div>
   <div class="v-help" id="vHelp"></div>
-  <div class="v-pip" id="vPipWrap"><canvas id="vPip"></canvas><span>Original photo</span></div>
 </div>
 
 <script type="module" src="app.js"></script>

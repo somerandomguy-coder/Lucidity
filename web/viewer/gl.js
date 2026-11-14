@@ -308,3 +308,62 @@ export class Grid {
     gl.bindVertexArray(null);
   }
 }
+
+// ---- lit "clay" meshes (mannequin, camera bodies)
+const MESH_VS = `#version 300 es
+layout(location=0) in vec3 aPos;
+layout(location=1) in vec3 aN;
+layout(location=2) in vec3 aCol;
+uniform mat4 uV, uP;
+out vec3 vN; out vec3 vCol; out vec3 vViewN;
+void main() {
+  gl_Position = uP * uV * vec4(aPos, 1.0);
+  vN = aN; vCol = aCol;
+  vViewN = mat3(uV) * aN;
+}`;
+const MESH_FS = `#version 300 es
+precision mediump float;
+in vec3 vN; in vec3 vCol; in vec3 vViewN;
+out vec4 o;
+void main() {
+  vec3 n = normalize(vN);
+  vec3 key = normalize(vec3(0.45, 0.85, 0.35));
+  float d = max(dot(n, key), 0.0);
+  float sky = 0.5 + 0.5 * n.y;                       // hemisphere ambient
+  float head = max(dot(normalize(vViewN), vec3(0.0, 0.0, 1.0)), 0.0); // soft headlight
+  float rim = pow(1.0 - head, 3.0) * 0.25;
+  vec3 c = vCol * (0.22 + 0.25 * sky + 0.45 * d + 0.25 * head) + rim;
+  o = vec4(c, 1.0);
+}`;
+
+export class Mesh {
+  constructor(gl) {
+    this.gl = gl;
+    this.prog = program(gl, MESH_VS, MESH_FS);
+    this.vao = gl.createVertexArray();
+    this.bufs = [gl.createBuffer(), gl.createBuffer(), gl.createBuffer()];
+    gl.bindVertexArray(this.vao);
+    this.bufs.forEach((b, i) => {
+      gl.bindBuffer(gl.ARRAY_BUFFER, b);
+      gl.enableVertexAttribArray(i);
+      gl.vertexAttribPointer(i, 3, gl.FLOAT, false, 0, 0);
+    });
+    gl.bindVertexArray(null);
+    this.n = 0;
+  }
+  set({ pos, nrm, col }) {
+    const gl = this.gl;
+    [pos, nrm, col].forEach((d, i) => { gl.bindBuffer(gl.ARRAY_BUFFER, this.bufs[i]); gl.bufferData(gl.ARRAY_BUFFER, d, gl.STATIC_DRAW); });
+    this.n = pos.length / 3;
+  }
+  draw(V, P) {
+    if (!this.n) return;
+    const gl = this.gl, u = this.prog.u;
+    gl.useProgram(this.prog.p);
+    gl.uniformMatrix4fv(u.uV, false, V);
+    gl.uniformMatrix4fv(u.uP, false, P);
+    gl.bindVertexArray(this.vao);
+    gl.drawArrays(gl.TRIANGLES, 0, this.n);
+    gl.bindVertexArray(null);
+  }
+}
