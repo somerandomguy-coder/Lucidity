@@ -43,6 +43,7 @@
   <div class="chips" id="filters" role="group" aria-label="Filter by camera angle"></div>
   <div class="tb-right">
     <span id="count" class="muted"></span>
+    <button id="btnCompare" class="btn" type="button" title="Pick two photos and compare their camera positions">Compare</button>
     <label class="sel">Sort
       <select id="sort">
         <option value="added">Order added</option>
@@ -55,6 +56,11 @@
     </label>
   </div>
 </section>
+
+<div id="pickBar" class="pick-bar" hidden role="status">
+  <span id="pickText">Pick two photos to compare</span>
+  <button id="pickCancel" class="btn" type="button">Cancel</button>
+</div>
 
 <main>
   <div id="empty" class="empty">
@@ -108,6 +114,7 @@
           <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M12 2l9 5v10l-9 5-9-5V7z M3 7l9 5 9-5 M12 12v10" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
           Build 3D scene
         </button>
+        <button id="btnCompareWith" class="btn" type="button">Compare with…</button>
         <button id="btnCopy" class="btn" type="button">Copy JSON</button>
       </div>
       <div id="dWarnings"></div>
@@ -126,6 +133,15 @@
       <p id="dMeta" class="muted small"></p>
     </div>
   </div>
+</dialog>
+
+<!-- Compare -->
+<dialog id="compare" class="detail compare" aria-labelledby="cTitle">
+  <div class="d-head">
+    <h2 id="cTitle">Compare camera positions</h2>
+    <button class="btn icon" type="button" id="cClose" aria-label="Close">✕</button>
+  </div>
+  <div class="cmp-body"></div>
 </dialog>
 
 <!-- Settings -->

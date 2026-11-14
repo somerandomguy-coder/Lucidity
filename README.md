@@ -6,15 +6,23 @@ and photos never leave your device.
 
 1. **Batch analysis.** Add photos or a whole folder. Every photo gets a card with its
    camera-angle label, a side-view diagram and its key numbers. Filter by angle, sort by
-   distance, height or tilt, and export everything as CSV or JSON.
-2. **Detail.** Open a card to see the fitted skeleton, the horizon and the eye-level overlay,
+   distance, height or tilt, and export everything as CSV or JSON. Every photo is analysed at
+   the same size, so copies of one photo at different resolutions give the same result.
+2. **Compare.** Pick two photos to see them side by side. You get a plain-words summary
+   ("B was taken 0.3 m higher, 25° further round to the subject's left…"), side and top-down
+   diagrams of both camera positions, and a table of differences.
+3. **Detail.** Open a card to see the fitted skeleton, the horizon and the eye-level overlay,
    every value with its 10–90% range, and the assumptions behind it (lens, subject height,
    upright, mirrored). Change an assumption and the numbers update instantly, without
    re-running the models.
-3. **3D scene.** Press **Build 3D scene** to rebuild the shot: a photo cut-out of the person,
-   the skeleton, the face point cloud, the camera frustum and the ground. Fly around with
-   WASD and the mouse, orbit, or snap back to the solved photo camera. Change lenses, try a
-   dolly zoom, and watch the virtual camera's numbers update live.
+4. **3D scene.** Press **Build 3D scene**. The subject appears as a plain mannequin with the
+   solved pose and head direction; a photo cut-out and skeleton are optional.
+   - **Overview:** orbit around the scene, with a live inset showing what the virtual camera sees.
+   - **Camera view:** look through the virtual camera, game-style (drag to look, WASD/QE to move).
+   - **Original shot:** the solved camera with the photo overlaid.
+
+   Sliders move the virtual camera (side angle, distance, height, tilt, roll, lens, dolly
+   zoom), and its numbers update live next to the original shot's.
 
 The design plan is `CamPose Web — Camera Angle & Position from a Photo.md`, and the places
 where the implementation differs from it are in [docs/decisions.md](docs/decisions.md).

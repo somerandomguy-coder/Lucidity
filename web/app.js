@@ -22,6 +22,8 @@ let running = false;
 let filter = 'all';
 let sortKey = 'added';
 let detailIdx = -1;
+let compareMode = false;
+let picked = []; // up to two photos for Compare
 let coreReady = initCore();
 let modelsReady = null;
 const timings = [];
@@ -169,8 +171,9 @@ function renderCard(p) {
   c.tabIndex = 0;
   c.dataset.id = p.id;
   c.setAttribute('role', 'button');
-  c.addEventListener('click', () => openDetail(p));
-  c.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openDetail(p); } });
+  const activate = () => (compareMode ? togglePick(p) : openDetail(p));
+  c.addEventListener('click', activate);
+  c.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); activate(); } });
   p.card = c;
   updateCard(p);
   return c;
@@ -216,7 +219,9 @@ function thumbOverlay(p) {
 function updateCard(p) {
   const c = p.card;
   if (!c) return;
-  c.className = `card state-${p.status}`;
+  const pi = picked.indexOf(p);
+  c.className = `card state-${p.status}${compareMode ? ' pickable' : ''}${pi >= 0 ? ' picked' : ''}`;
+  const pickBadge = pi >= 0 ? `<span class="pick-badge" style="background:${pi ? '#5ee0d0' : '#ffb35c'}">${pi ? 'B' : 'A'}</span>` : '';
   const img = p.det?.thumb ? `<img src="${p.det.thumb.url}" alt="" loading="lazy" decoding="async">` : '';
   const fname = `<div class="fname" title="${esc(p.name)}">${esc(p.name)}</div>`;
   if (p.status !== 'done') {
@@ -228,7 +233,7 @@ function updateCard(p) {
   const lensSrc = F.LENS_SOURCE[p.intr.source] || p.intr.source;
   const warn = r.warnings.length ? `<span class="tag warn" title="${esc(r.warnings.map((w) => F.WARN[w] || w).join('\n'))}">${r.warnings.length} note${r.warnings.length > 1 ? 's' : ''}</span>` : '';
   c.innerHTML = `
-    <div class="thumb">${img}${thumbOverlay(p)}
+    <div class="thumb">${img}${thumbOverlay(p)}${pickBadge}
       <span class="badge">${F.ANGLE[l.angle]}</span>${l.dutch ? `<span class="badge dutch">Dutch ${Math.abs(cam.roll_deg.v).toFixed(0)}°</span>` : ''}
     </div>
     <div class="body">
@@ -365,10 +370,9 @@ function sideColor(i, j) {
   return '#e8ebf1';
 }
 
-function drawOverlay(p, ctx, s) {
+function drawOverlay(p, ctx, s, on = (k) => $(`#ovToggles input[data-ov="${k}"]`).checked) {
   const r = p.result;
   if (!r) return;
-  const on = (k) => $(`#ovToggles input[data-ov="${k}"]`).checked;
   const W = ctx.canvas.width;
   const lw = Math.max(1.5, W / 500);
   const drawLine = (l, color, dash, label) => {
@@ -419,6 +423,7 @@ function renderDetail(p) {
   $('#dPrev').disabled = detailIdx <= 0;
   $('#dNext').disabled = detailIdx < 0 || detailIdx >= visiblePhotos().length - 1;
   $('#btn3d').disabled = !r;
+  $('#btnCompareWith').disabled = !r;
   $('#btnCopy').disabled = !r;
   drawDetailCanvas(p);
   if (!r) {
@@ -483,6 +488,45 @@ function onAssumption() {
   refreshChrome();
 }
 
+// ---------- compare ----------
+function setCompareMode(on, first = null) {
+  compareMode = on;
+  picked = on && first ? [first] : [];
+  $('#pickBar').hidden = !on;
+  $('#btnCompare').classList.toggle('primary', on);
+  updatePickText();
+  for (const p of photos) updateCard(p);
+}
+function updatePickText() {
+  $('#pickText').textContent = picked.length === 0 ? 'Pick two photos to compare'
+    : `Picked ${picked[0].name}. Now pick the second photo.`;
+}
+async function togglePick(p) {
+  if (p.status !== 'done') return;
+  const i = picked.indexOf(p);
+  if (i >= 0) picked.splice(i, 1);
+  else { picked.push(p); if (picked.length > 2) picked.shift(); }
+  for (const x of photos) updateCard(x);
+  updatePickText();
+  if (picked.length === 2) {
+    const [a, b] = picked;
+    const { openCompare } = await import('./compare.js');
+    await openCompare(a, b, { decode, drawOverlay });
+  }
+}
+$('#btnCompare').onclick = () => setCompareMode(!compareMode);
+$('#pickCancel').onclick = () => setCompareMode(false);
+$('#cClose').onclick = () => $('#compare').close();
+$('#compare').addEventListener('click', (e) => { if (e.target.id === 'compare') $('#compare').close(); });
+// after closing a comparison, stay in compare mode with A kept so B can be swapped quickly
+$('#compare').addEventListener('close', () => { if (compareMode) { picked = picked.slice(0, 1); updatePickText(); for (const p of photos) updateCard(p); } });
+$('#btnCompareWith').onclick = () => {
+  const p = curDetail();
+  if (!p?.result) return;
+  dlg.close();
+  setCompareMode(true, p);
+};
+
 // ---------- export ----------
 function download(name, text, type) {
   const a = document.createElement('a');
@@ -524,6 +568,7 @@ $('#btnClear').onclick = () => {
   if (running) return;
   for (const p of photos) { if (p.det?.thumb) URL.revokeObjectURL(p.det.thumb.url); p.card.remove(); }
   photos.length = 0; filter = 'all';
+  setCompareMode(false);
   refreshChrome();
 };
 $('#btnExport').onclick = (e) => { e.stopPropagation(); $('#exportMenu').hidden = !$('#exportMenu').hidden; };
