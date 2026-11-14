@@ -277,3 +277,17 @@ fn focal_estimate_recovers_wrong_preset() {
     assert!(out2.contains("\"source\":\"input\""));
 }
 
+
+#[test]
+fn no_focal_estimate_for_head_and_shoulders() {
+    let shot = Shot { w: 1200.0, h: 1600.0, f: 800.0, cam_w: [0.3, 1.4, 1.9], target_w: [0.0, 1.0, 0.0], roll: 0.0 };
+    let mut buf = build_input(&shot, 0.0);
+    buf[2] = 1600.0;
+    buf[10] = 1.0;
+    buf[13] = 1.0;
+    for i in 23..33 {
+        buf[OFF_POSE2D + i * 3 + 2] = 0.05; // hips and legs not visible (selfie crop)
+    }
+    let out = campose_core::analyze_buffer(&buf);
+    assert!(out.contains("\"source\":\"input\""), "{}", out);
+}

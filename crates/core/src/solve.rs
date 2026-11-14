@@ -636,6 +636,8 @@ struct Ctx<'a> {
     face: Option<FaceEst>,
     face_ok: bool,
     standing: bool,
+    /// shoulders and hips confidently inside the frame (strict: no edge margin)
+    torso_ok: bool,
     sitting_detected: bool,
 }
 
@@ -702,7 +704,6 @@ fn solve_once(ctx: &Ctx, pt: &Perturb, warm: Option<&Fit>) -> Option<Solved> {
     let mut cands: Vec<(V3, f64, &'static str)> = vec![];
     let mut body_fwd = None;
     if let Some(j) = &joints {
-        let w = &ctx.weights;
         let sh = mid(j[L_SH], j[R_SH]);
         let hip = mid(j[L_HIP], j[R_HIP]);
         if inp.upright {
@@ -710,7 +711,7 @@ fn solve_once(ctx: &Ctx, pt: &Perturb, warm: Option<&Fit>) -> Option<Solved> {
                 let ank = mid(j[L_ANK], j[R_ANK]);
                 cands.push((normalize(sub(sh, ank)), 4f64.to_radians(), "standing"));
             }
-            if w[L_SH] > 0.0 && w[R_SH] > 0.0 && w[L_HIP] > 0.0 && w[R_HIP] > 0.0 {
+            if ctx.torso_ok {
                 let s = if ctx.sitting_detected { 14.0 } else { 8.0 };
                 cands.push((normalize(sub(sh, hip)), f64::to_radians(s), "torso"));
             }
@@ -857,8 +858,12 @@ pub fn analyze(inp_in: &Input) -> String {
         face: face.clone(),
         face_ok,
         standing: false,
+        torso_ok: false,
         sitting_detected: false,
     };
+    // Gravity cues only from landmarks clearly inside the frame. A margin here would let a
+    // joint just past the edge switch a cue on in one copy of a photo and off in another.
+    ctx.torso_ok = [L_SH, R_SH, L_HIP, R_HIP].iter().all(|&i| seen_strict(inp, i, 0.5));
     let nominal_pt = Perturb { f_mul: 1.0, s_mul: 1.0, face_mul: 1.0, uv_noise: None, grav_rot: [0.0; 3] };
     let first = match solve_once(&ctx, &nominal_pt, None) {
         Some(s) => s,
@@ -875,11 +880,10 @@ pub fn analyze(inp_in: &Input) -> String {
         let knee_r = joint_angle(j[R_HIP], j[R_KNEE], j[R_ANK]).to_degrees();
         let hip_l = joint_angle(j[L_SH], j[L_HIP], j[L_KNEE]).to_degrees();
         let hip_r = joint_angle(j[R_SH], j[R_HIP], j[R_KNEE]).to_degrees();
-        let ankles_vis = inp.pose.as_ref().map_or(false, |p| p.vis[L_ANK] > 0.7 && p.vis[R_ANK] > 0.7)
-            && w[L_ANK] > 0.0
-            && w[R_ANK] > 0.0;
+        let _ = w;
+        let ankles_vis = seen_strict(inp, L_ANK, 0.7) && seen_strict(inp, R_ANK, 0.7);
         ctx.standing = ankles_vis && knee_l > 160.0 && knee_r > 160.0;
-        let knees_vis = w[L_KNEE] > 0.5 && w[R_KNEE] > 0.5;
+        let knees_vis = seen_strict(inp, L_KNEE, 0.5) && seen_strict(inp, R_KNEE, 0.5);
         ctx.sitting_detected = knees_vis && (knee_l.min(knee_r) < 130.0 || hip_l.min(hip_r) < 130.0);
     }
     let nom = if ctx.standing || ctx.sitting_detected {
@@ -904,8 +908,7 @@ pub fn analyze(inp_in: &Input) -> String {
             wsum += 1.0 / 4f64.to_radians().powi(2);
         }
         if let Some(_) = &nom.joints {
-            let w = &ctx.weights;
-            if inp.upright && w[L_SH] > 0.0 && w[R_SH] > 0.0 && w[L_HIP] > 0.0 && w[R_HIP] > 0.0 {
+            if inp.upright && ctx.torso_ok {
                 srcs.push("torso");
                 wsum += 1.0 / f64::to_radians(if ctx.sitting_detected { 14.0 } else { 8.0 }).powi(2);
             }
@@ -1211,7 +1214,11 @@ fn body_rmse_at(inp: &Input, w: &[f64], sigma_px: f64, f: f64) -> f64 {
 pub fn estimate_focal(inp: &Input) -> Option<FocalEst> {
     let pose = inp.pose.as_ref()?;
     let w = pose_weights(pose, inp.w, inp.h);
-    if w.iter().filter(|&&x| x > 0.0).count() < 10 {
+    // Perspective evidence needs body depth range: hips and at least one knee in frame,
+    // plenty of confident landmarks (plan: "close full-body or wide shots" only).
+    let confident = (0..N_POSE).filter(|&i| w[i] > 0.6).count();
+    let legs = w[L_HIP] > 0.5 && w[R_HIP] > 0.5 && (w[L_KNEE] > 0.5 || w[R_KNEE] > 0.5);
+    if confident < 14 || !legs {
         return None;
     }
     let sigma_px = landmark_sigma_px(pose, &w);
@@ -1254,7 +1261,10 @@ pub fn estimate_focal(inp: &Input) -> Option<FocalEst> {
     // preset's *extra* error above the best fit, in quadrature.
     let excess = (rmse_input * rmse_input - rmse_best * rmse_best).max(0.0).sqrt();
     let clear = (rmse_best < 0.65 * rmse_input && rmse_input > 0.5 * sigma_px) || excess > sigma_px;
-    if !clear {
+    // the model must actually fit at the best focal, and the minimum must be inside the range
+    let good_fit = rmse_best < 2.5 * sigma_px;
+    let interior = bi > 0 && bi < n - 1;
+    if !(clear && good_fit && interior) {
         return None;
     }
     // Interval of focal lengths that fit nearly as well (extra error below half the landmark noise)
@@ -1270,4 +1280,12 @@ pub fn estimate_focal(inp: &Input) -> Option<FocalEst> {
     let best = lm_best.exp();
     let sigma_rel = ((hi / lo).ln() / 2.56).clamp(0.12, 0.6);
     Some(FocalEst { f: inp.f * best, lo: inp.f * lo, hi: inp.f * hi, sigma_rel, rmse_input, rmse_best })
+}
+
+/// Landmark is confidently visible and inside the image (no margin).
+fn seen_strict(inp: &Input, i: usize, min_vis: f64) -> bool {
+    inp.pose.as_ref().map_or(false, |p| {
+        let [u, v] = p.uv[i];
+        p.vis[i] > min_vis && u >= 0.0 && v >= 0.0 && u <= inp.w && v <= inp.h
+    })
 }

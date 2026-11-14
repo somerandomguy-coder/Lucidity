@@ -27,8 +27,23 @@ let modelsReady = null;
 const timings = [];
 
 // ---------- adding files ----------
-function addFiles(files) {
-  const list = [...files].filter((f) => IMG_RE.test(f.name) || f.type.startsWith('image/'));
+/** Recognise images by their first bytes, so files with no or wrong extensions still work. */
+async function looksLikeImage(f) {
+  if (f.type.startsWith('image/') || IMG_RE.test(f.name)) return true;
+  if (f.size < 12 || f.size > 200e6) return false;
+  const b = new Uint8Array(await f.slice(0, 16).arrayBuffer());
+  const ascii = (o, n) => String.fromCharCode(...b.slice(o, o + n));
+  return (b[0] === 0xff && b[1] === 0xd8) // JPEG
+    || ascii(1, 3) === 'PNG'
+    || (ascii(0, 4) === 'RIFF' && ascii(8, 4) === 'WEBP')
+    || ascii(0, 3) === 'GIF' || ascii(0, 2) === 'BM'
+    || (ascii(4, 4) === 'ftyp' && /hei|mif|avi/.test(ascii(8, 4))); // HEIC / AVIF
+}
+
+async function addFiles(files) {
+  const all = [...files];
+  const ok = await Promise.all(all.map(looksLikeImage));
+  const list = all.filter((_, i) => ok[i]);
   if (!list.length) return;
   list.sort((a, b) => (a.webkitRelativePath || a.name).localeCompare(b.webkitRelativePath || b.name, undefined, { numeric: true }));
   for (const file of list) {
@@ -43,7 +58,7 @@ function addFiles(files) {
 async function readEntries(entry, out) {
   if (entry.isFile) {
     await new Promise((res) => entry.file((f) => {
-      if (IMG_RE.test(f.name)) {
+      if (!/\.(txt|json|csv|md|db|ini|mp4|mov|pdf|zip)$/i.test(f.name) && !f.name.startsWith('.')) {
         // keep the folder path for display
         try { Object.defineProperty(f, 'webkitRelativePath', { value: entry.fullPath.replace(/^\//, '') }); } catch { /* ignore */ }
         out.push(f);

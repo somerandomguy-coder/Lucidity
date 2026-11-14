@@ -10,7 +10,10 @@ const MODELS = {
   face: 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/face_landmarker.task',
 };
 const CACHE = 'campose-models-v1';
-/** Longest side used for inference. Landmark models work on ≤256 px crops, so more is wasted work. */
+/**
+ * Longest side used for inference (every photo is scaled to exactly this, up or down).
+ * Landmark models work on ≤256 px crops, so more is wasted work.
+ */
 export const ANALYSIS_MAX = 1024;
 
 let vision = null;
@@ -93,12 +96,16 @@ function largest(list) {
   return bi;
 }
 
-/** Decode a file into a bitmap no larger than `maxSide` (EXIF orientation applied). */
-export async function decode(file, maxSide) {
+/**
+ * Decode a file into a bitmap no larger than `maxSide` (EXIF orientation applied).
+ * With `exact`, small images are scaled *up* too, so every copy of a photo reaches the
+ * models at the same size and gives the same result whatever its file resolution.
+ */
+export async function decode(file, maxSide, exact = false) {
   const full = await createImageBitmap(file, { imageOrientation: 'from-image' });
   const W0 = full.width, H0 = full.height;
-  const sc = Math.min(1, maxSide / Math.max(W0, H0));
-  if (sc >= 1) return { bmp: full, W0, H0, sc: 1 };
+  const sc = exact ? maxSide / Math.max(W0, H0) : Math.min(1, maxSide / Math.max(W0, H0));
+  if (Math.abs(sc - 1) < 1e-3) return { bmp: full, W0, H0, sc: 1 };
   const bmp = await createImageBitmap(full, {
     resizeWidth: Math.round(W0 * sc), resizeHeight: Math.round(H0 * sc), resizeQuality: 'medium',
   });
@@ -122,7 +129,7 @@ async function makeThumb(bmp, side = 360) {
 export async function detectPhoto(file, settings) {
   const head = new Uint8Array(await file.slice(0, 256 * 1024).arrayBuffer());
   const t0 = performance.now();
-  const { bmp, W0, H0 } = await decode(file, ANALYSIS_MAX);
+  const { bmp, W0, H0 } = await decode(file, ANALYSIS_MAX, true);
   const w = bmp.width, h = bmp.height;
   const thumb = await makeThumb(bmp);
   const pr = poseLm.detect(bmp);
