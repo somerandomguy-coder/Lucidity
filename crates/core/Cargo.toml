@@ -1,0 +1,8 @@
+[package]
+name = "campose-core"
+version = "0.1.0"
+edition = "2021"
+description = "Zero-dependency camera pose geometry: linalg, EXIF, intrinsics, PnP, gravity, metrics."
+license = "MIT OR Apache-2.0"
+
+[dependencies]
