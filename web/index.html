@@ -197,6 +197,14 @@
       <button type="button" data-face="clay" title="Your face shape from the face mesh, in clay">Face shape</button>
       <button type="button" data-face="photo" title="Your face shape coloured from the photo">Face + colour</button>
     </div>
+    <div class="seg" role="group" aria-label="View presets" id="vViews">
+      <button type="button" data-view="fit" title="Frame subject and camera (F)">Fit</button>
+      <button type="button" data-view="top" title="Look straight down (T)">Top</button>
+      <button type="button" data-view="front" title="From in front of the subject">Front</button>
+      <button type="button" data-view="side" title="From the subject's left">Side</button>
+      <button type="button" data-view="behind" title="Over the camera's shoulder">Behind camera</button>
+    </div>
+    <button type="button" class="btn icon" id="vHelpBtn" title="Controls" aria-label="Show controls">?</button>
     <label class="v-check" id="vOpacityWrap" hidden>Photo <input type="range" id="vOpacity" min="0" max="1" step="0.01" value="0.5"></label>
   </div>
   <button type="button" class="btn icon" id="vClose" aria-label="Close 3D view">✕</button>
@@ -223,6 +231,26 @@
     </div>
   </aside>
 
+  <button type="button" class="v-find" id="vFind" hidden>📷 Camera is out of view: show it</button>
+  <div class="v-help-card" id="vHelpCard" hidden>
+    <h4>Controls</h4>
+    <table>
+      <tr><th colspan="2">Overview</th></tr>
+      <tr><td>Drag the ring on the floor</td><td>move the camera</td></tr>
+      <tr><td>Drag the arrow (or Shift-drag)</td><td>raise / lower the camera</td></tr>
+      <tr><td>Drag empty space · middle-drag</td><td>orbit the view</td></tr>
+      <tr><td>Right-drag · Shift + middle-drag</td><td>pan</td></tr>
+      <tr><td>Wheel · pinch</td><td>zoom</td></tr>
+      <tr><td>F · Top / Front / Side buttons</td><td>frame everything · preset views</td></tr>
+      <tr><th colspan="2">Camera view</th></tr>
+      <tr><td>Drag</td><td>look around</td></tr>
+      <tr><td>W A S D · Q / E · Shift</td><td>move · down / up · faster</td></tr>
+      <tr><th colspan="2">Anywhere</th></tr>
+      <tr><td>1 / 2 / 3</td><td>Overview / Camera view / Original shot</td></tr>
+      <tr><td>Esc</td><td>close</td></tr>
+    </table>
+    <p>Same idea as most 3D tools: orbit, pan and zoom move <i>your view</i>; the ring and arrow move <i>the camera object</i>. Blender users: middle-drag orbits and Shift + middle-drag pans here too.</p>
+  </div>
   <div class="v-pip" id="vPip"><span id="vPipLabel"></span></div>
   <div class="v-help" id="vHelp"></div>
 </div>

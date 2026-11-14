@@ -53,7 +53,7 @@ export function openViewer(photo, assets, onClose) {
 
   // ---------- static scene ----------
   const skel = new Lines(gl), pts = new Points(gl), facePts = new Points(gl), grid = new Grid(gl);
-  const photoLines = new Lines(gl), virtLines = new Lines(gl), body = new Mesh(gl), camBody = new Mesh(gl);
+  const photoLines = new Lines(gl), virtLines = new Lines(gl), body = new Mesh(gl), camBody = new Mesh(gl), gizmo = new Lines(gl);
   let faceCols = null;
   const joints = sc.joints_w, w8 = sc.joint_w8 || [];
   if (joints) {
@@ -230,6 +230,14 @@ export function openViewer(photo, assets, onClose) {
     requestRender();
   };
   const lensProj = (f35, w, h) => { const fpx = f35 * Math.hypot(w, h) / DIAG35; return M4.fromIntrinsics(fpx, fpx, w / 2, h / 2, w, h); };
+  /** Overview: 24 mm lens, centred in the part of the screen the side panel doesn't cover. */
+  const ovFpx = () => 24 * Math.hypot(vw, vh) / DIAG35;
+  const ovCx = () => {
+    const narrow = vw / dpr < 760;
+    const covered = !narrow && !ui.panel.classList.contains('collapsed') ? (ui.panel.offsetWidth + 24) * dpr : 0;
+    return (vw - covered) / 2;
+  };
+  const overviewProj = () => M4.fromIntrinsics(ovFpx(), ovFpx(), ovCx(), vh / 2, vw, vh);
   /** Virtual-camera picture: lens defined on a W:H frame fitted in the viewport, like the photo. */
   const virtProj = (w, h) => {
     const s = Math.min(w / W, h / H);
@@ -271,7 +279,7 @@ export function openViewer(photo, assets, onClose) {
     if (layers.cutout && cutout) cutout.draw(V, P, 0.5, 1);
     if (layers.skeleton) { skel.draw(V, P, opts.w, opts.h, 3 * dpr); pts.draw(V, P, 3 * dpr); facePts.draw(V, P, 2 * dpr); }
     if (opts.photoCam) { photoPlane.draw(V, P, 0, 0.92); photoLines.draw(V, P, opts.w, opts.h, 1.8 * dpr); }
-    if (opts.virtCam) { virtLines.draw(V, P, opts.w, opts.h, 2 * dpr); camBody.draw(V, P); }
+    if (opts.virtCam) virtLines.draw(V, P, opts.w, opts.h, 2 * dpr);
     gl.depthMask(false);
     grid.draw(V, P, camPos, sc.ground_seen ? 1 : 0.55);
     gl.depthMask(true);
@@ -304,7 +312,7 @@ export function openViewer(photo, assets, onClose) {
     let V, P, pos;
     if (mode === 'orbit') {
       const b = orbitBasis(); pos = orbitPos();
-      V = M4.view(pos, b.right, b.up, b.back); P = lensProj(24, vw, vh);
+      V = M4.view(pos, b.right, b.up, b.back); P = overviewProj();
     } else if (mode === 'camera') {
       const b = vBasis(); pos = vcam.pos;
       V = M4.view(pos, b.right, b.up, b.back); P = virtProj(vw, vh);
@@ -318,6 +326,7 @@ export function openViewer(photo, assets, onClose) {
     const nearPhotoCam = V3.len(V3.sub(vcam.pos, photoCam.pos)) < planeZ * 2.5;
     drawScene(V, P, pos, { w: vw, h: vh, photoCam: mode === 'orbit' || (mode === 'camera' && !nearPhotoCam), virtCam: mode === 'orbit' });
 
+    if (mode === 'orbit') drawGizmo(V, P);
     if (mode === 'photo') {
       const s = Math.min(vw / W, vh / H);
       const cssW = W * s / dpr, cssH = H * s / dpr;
@@ -358,6 +367,7 @@ export function openViewer(photo, assets, onClose) {
   let lastVP = null;
   function updateLabels(V, P) {
     lastVP = { V, P };
+    updateFindChip();
     const VP = M4.mul(P, V);
     const defs = mode === 'photo' ? [] : [
       { key: 'cam', at: photoCam.pos, text: moved() ? 'Original position' : '', click: () => setMode('photo') },
@@ -460,8 +470,9 @@ export function openViewer(photo, assets, onClose) {
     mode = m;
     root.querySelectorAll('[data-mode]').forEach((b) => b.classList.toggle('on', b.dataset.mode === m));
     ui.opacityWrap.hidden = m !== 'photo';
+    $('#vViews').hidden = m !== 'orbit';
     ui.help.innerHTML = m === 'orbit'
-      ? '<b>Drag the camera</b> to move it (Shift-drag: up/down) · drag elsewhere to rotate the view · right-drag to pan · wheel to zoom'
+      ? 'Drag the <b>ring</b> to move the camera · drag the <b>arrow</b> to raise it · drag empty space to orbit · right-drag pan · wheel zoom · <b>F</b> frame all'
       : m === 'camera' ? 'You are the camera: drag to look · <b>W A S D</b> move · <b>Q / E</b> down / up · Shift faster · wheel forward/back'
         : 'The solved camera with the photo on top: use the slider to compare. Drag in the scene to take over as the virtual camera.';
     requestRender();
@@ -492,7 +503,7 @@ export function openViewer(photo, assets, onClose) {
 
   const pointers = new Map();
   let drag = null, pinch = null;
-  /** Screen position (css px) of a world point in the current main view, or null. */
+  /** Screen position (css px, page coords) of a world point in the current main view, or null. */
   const screenOf = (p) => {
     if (!lastVP) return null;
     const VP = M4.mul(lastVP.P, lastVP.V);
@@ -503,30 +514,106 @@ export function openViewer(photo, assets, onClose) {
     const r = canvas.getBoundingClientRect();
     return [r.left + (x * 0.5 + 0.5) * r.width, r.top + (1 - (y * 0.5 + 0.5)) * r.height];
   };
-  const nearCamera = (e) => {
-    if (mode !== 'orbit') return false;
-    const sp = screenOf(vcam.pos);
-    return !!sp && Math.hypot(sp[0] - e.clientX, sp[1] - e.clientY) < 40;
-  };
   /** World ray through a pointer position in the Overview camera. */
   const pointerRay = (e) => {
     const r = canvas.getBoundingClientRect();
     const px = (e.clientX - r.left) * dpr, py = (e.clientY - r.top) * dpr;
-    const fpx = 24 * Math.hypot(vw, vh) / DIAG35;
     const b = orbitBasis();
-    const d = V3.add(V3.add(V3.scale(b.right, (px - vw / 2) / fpx), V3.scale(b.up, -(py - vh / 2) / fpx)), V3.scale(b.back, -1));
+    const f0 = ovFpx();
+    const d = V3.add(V3.add(V3.scale(b.right, (px - ovCx()) / f0), V3.scale(b.up, -(py - vh / 2) / f0)), V3.scale(b.back, -1));
     return { o: orbitPos(), d: V3.norm(d) };
   };
+  const floorHit = (ray) => {
+    if (ray.d[1] > -0.02) return null; // looking at or above the horizon: no stable floor point
+    const t = -ray.o[1] / ray.d[1];
+    return t > 0 && t < 60 ? V3.add(ray.o, V3.scale(ray.d, t)) : null;
+  };
+  // Move gizmo, like a 3D editor's: a ring on the floor under the camera (drag = move on the
+  // floor) and an arrow above it (drag = raise / lower). Drawn on top so it is never hidden.
+  const gizmoR = () => clamp(orbit.dist * 0.045, 0.08, 0.5);
+  const arrowTip = () => [vcam.pos[0], vcam.pos[1] + gizmoR() * 1.8, vcam.pos[2]];
+  let hover = null; // 'floor' | 'height' | null
+  function drawGizmo(V, P) {
+    const R = gizmoR(), foot = [vcam.pos[0], 0.002, vcam.pos[2]];
+    const on = (k) => (grab?.kind === k || hover === k);
+    const cf = on('floor') ? [0.75, 1, 0.96, 1] : [0.37, 0.88, 0.82, 0.95];
+    const ch = on('height') ? [0.75, 1, 0.96, 1] : [0.37, 0.88, 0.82, 0.95];
+    const segs = [];
+    const n = 32;
+    for (let i = 0; i < n; i++) {
+      const a0 = 2 * Math.PI * i / n, a1 = 2 * Math.PI * (i + 1) / n;
+      segs.push({ a: [foot[0] + Math.cos(a0) * R, foot[1], foot[2] + Math.sin(a0) * R], b: [foot[0] + Math.cos(a1) * R, foot[1], foot[2] + Math.sin(a1) * R], c: cf });
+    }
+    for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { // little arrows: "moves on the floor"
+      const tip = [foot[0] + dx * R * 1.45, foot[1], foot[2] + dz * R * 1.45];
+      const base = [foot[0] + dx * R * 1.1, foot[1], foot[2] + dz * R * 1.1];
+      segs.push({ a: base, b: tip, c: cf });
+    }
+    segs.push({ a: foot, b: vcam.pos, c: [0.37, 0.88, 0.82, 0.6] });
+    const top = arrowTip(), stem = [vcam.pos[0], vcam.pos[1] + R * 0.5, vcam.pos[2]];
+    segs.push({ a: stem, b: top, c: ch });
+    const bv = orbitBasis().right;
+    segs.push({ a: top, b: V3.add(V3.sub(top, [0, R * 0.35, 0]), V3.scale(bv, R * 0.25)), c: ch });
+    segs.push({ a: top, b: V3.sub(V3.sub(top, [0, R * 0.35, 0]), V3.scale(bv, R * 0.25)), c: ch });
+    gizmo.set(segs);
+    gl.disable(gl.DEPTH_TEST);
+    gizmo.draw(V, P, vw, vh, (on('floor') || on('height') ? 3.2 : 2.4) * dpr);
+    camBody.draw(V, P);
+    gl.enable(gl.DEPTH_TEST);
+  }
+  /** What part of the gizmo is under the pointer. */
+  const pick = (e) => {
+    if (mode !== 'orbit') return null;
+    const near = (p, rpx) => { const sp = screenOf(p); return sp && Math.hypot(sp[0] - e.clientX, sp[1] - e.clientY) < rpx; };
+    if (near(arrowTip(), 22)) return 'height';
+    if (near(vcam.pos, 30)) return 'floor';
+    const hit = floorHit(pointerRay(e));
+    if (hit && Math.hypot(hit[0] - vcam.pos[0], hit[2] - vcam.pos[2]) < gizmoR() * 1.6) return 'floor';
+    return null;
+  };
+  const MAX_RANGE = Math.max(15, camDist * 4); // keep the camera within reach of the subject
+
+  // --- keep the camera findable: chip at the screen edge when it's out of view
+  const findChip = document.getElementById('vFind');
+  function updateFindChip() {
+    if (mode !== 'orbit') { findChip.hidden = true; return; }
+    const sp = screenOf(vcam.pos);
+    const r = canvas.getBoundingClientRect();
+    const panelLeft = (ui.panel.classList.contains('collapsed') || vw / dpr < 760) ? r.right : ui.panel.getBoundingClientRect().left;
+    const visible = sp && sp[0] > r.left + 10 && sp[0] < panelLeft - 10 && sp[1] > r.top + 50 && sp[1] < r.bottom - 10;
+    findChip.hidden = !!visible;
+  }
+  /** Frame subject and camera together (like "frame all" / F in 3D tools). */
+  function frameAll(keepAngles = true) {
+    const mid = V3.lerp([eye[0], eye[1] * 0.55, eye[2]], [vcam.pos[0], Math.min(vcam.pos[1], eye[1]), vcam.pos[2]], 0.5);
+    const sep = V3.len(V3.sub(vcam.pos, eye));
+    orbit.target = mid;
+    orbit.dist = clamp(sep * 1.4 + 1.8, 2, 40);
+    if (!keepAngles) { orbit.yaw = 0; orbit.pitch = 0.3; }
+    requestRender();
+  }
+  function viewPreset(k) {
+    frameAll();
+    if (k === 'top') { orbit.pitch = 1.5; }
+    if (k === 'front') { orbit.yaw = 0; orbit.pitch = 0.12; }
+    if (k === 'side') { orbit.yaw = Math.PI / 2; orbit.pitch = 0.12; }
+    if (k === 'behind') { // over the camera's shoulder towards the subject
+      const d = V3.sub(vcam.pos, eye);
+      orbit.yaw = Math.atan2(d[0], d[2]);
+      orbit.pitch = 0.3;
+    }
+    setMode('orbit');
+  }
+
   const onDown = (e) => {
     canvas.setPointerCapture(e.pointerId);
     pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     drag = { x: e.clientX, y: e.clientY, btn: e.button, shift: e.shiftKey, id: e.pointerId };
-    if (pointers.size === 1 && nearCamera(e)) {
-      // grab the camera: drag along the floor; Shift or right button moves it up/down
-      const r0 = pointerRay(e);
-      const t = (vcam.pos[1] - r0.o[1]) / (Math.abs(r0.d[1]) > 1e-6 ? r0.d[1] : -1e-6);
-      const hit = V3.add(r0.o, V3.scale(r0.d, t));
-      grab = { vertical: e.shiftKey || e.button === 2, offset: V3.sub(vcam.pos, hit) };
+    const part = pointers.size === 1 && e.button === 0 ? pick(e) : null;
+    if (part) {
+      const kind = e.shiftKey ? 'height' : part;
+      const hit = floorHit(pointerRay(e));
+      grab = { kind, offset: hit ? [vcam.pos[0] - hit[0], 0, vcam.pos[2] - hit[2]] : [0, 0, 0] };
       canvas.style.cursor = 'grabbing';
       requestRender();
     }
@@ -548,16 +635,16 @@ export function openViewer(photo, assets, onClose) {
     drag.x = e.clientX; drag.y = e.clientY;
     if (grab) {
       const old = vcam.pos.slice();
-      if (grab.vertical || e.shiftKey) {
-        vcam.pos = [vcam.pos[0], clamp(vcam.pos[1] - dy * orbit.dist * 0.0022, 0.02, 20), vcam.pos[2]];
+      if (grab.kind === 'height') {
+        // move along the vertical so it follows the pointer: world units per screen pixel at the camera
+        const b = orbitBasis();
+        const depth = Math.max(0.3, V3.dot(V3.sub(vcam.pos, orbitPos()), V3.scale(b.back, -1)));
+        vcam.pos = [vcam.pos[0], clamp(vcam.pos[1] - dy * dpr * depth / ovFpx(), 0.02, 10), vcam.pos[2]];
       } else {
-        const r1 = pointerRay(e);
-        if (Math.abs(r1.d[1]) > 1e-3) {
-          const t = (vcam.pos[1] - r1.o[1]) / r1.d[1];
-          if (t > 0 && t < 200) {
-            const hit = V3.add(r1.o, V3.scale(r1.d, t));
-            vcam.pos = [hit[0] + grab.offset[0], vcam.pos[1], hit[2] + grab.offset[2]];
-          }
+        const hit = floorHit(pointerRay(e));
+        if (hit) {
+          const nx = hit[0] + grab.offset[0], nz = hit[2] + grab.offset[2];
+          if (Math.hypot(nx - eye[0], nz - eye[2]) < MAX_RANGE) vcam.pos = [nx, vcam.pos[1], nz];
         }
       }
       reframe(old);
@@ -589,7 +676,9 @@ export function openViewer(photo, assets, onClose) {
   };
   const onHover = (e) => {
     if (drag || grab || e.pointerType === 'touch') return;
-    canvas.style.cursor = nearCamera(e) ? 'grab' : '';
+    const h = pick(e);
+    canvas.style.cursor = h ? (h === 'height' ? 'ns-resize' : 'move') : '';
+    if (h !== hover) { hover = h; requestRender(); }
   };
   const zoomBy = (delta) => {
     if (mode === 'orbit') orbit.dist = clamp(orbit.dist * Math.exp(delta * 0.0012), 0.5, 40);
@@ -608,6 +697,8 @@ export function openViewer(photo, assets, onClose) {
     const k = keyName(e);
     if (k === 'escape') { closeViewer(); return; }
     if (k === '1') setMode('orbit'); else if (k === '2') setMode('camera'); else if (k === '3') setMode('photo');
+    if (k === 'f' || k === 'home') { viewPreset('fit'); return; }
+    if (k === 't') { viewPreset('top'); return; }
     if (!MOVE.has(k)) return;
     // arrow keys on a focused slider adjust the slider instead
     if (k.startsWith('arrow') && e.target.matches?.('input[type=range]')) return;
@@ -647,7 +738,10 @@ export function openViewer(photo, assets, onClose) {
     if (b.dataset.layer) { layers[b.dataset.layer] = !layers[b.dataset.layer]; b.classList.toggle('on', layers[b.dataset.layer]); requestRender(); }
     if (b.id === 'vReset') { anim = null; resetToPhoto(); syncLens(); requestRender(); }
     if (b.id === 'vLook') setMode('camera');
-    if (b.id === 'vCollapse') { const col = ui.panel.classList.toggle('collapsed'); b.setAttribute('aria-expanded', String(!col)); }
+    if (b.dataset.view) viewPreset(b.dataset.view);
+    if (b.id === 'vFind') { viewPreset('fit'); }
+    if (b.id === 'vHelpBtn') { const h = $('#vHelpCard'); h.hidden = !h.hidden; }
+    if (b.id === 'vCollapse') { const col = ui.panel.classList.toggle('collapsed'); b.setAttribute('aria-expanded', String(!col)); requestRender(); }
     if (b.id === 'vClose') closeViewer();
   };
   root.addEventListener('click', onClick);
@@ -676,6 +770,7 @@ export function openViewer(photo, assets, onClose) {
       gl.getExtension('WEBGL_lose_context')?.loseContext();
       ui.labels.innerHTML = '';
       overlay.style.display = 'none';
+      findChip.hidden = true;
       root.hidden = true;
       onClose?.();
     },
@@ -687,6 +782,7 @@ export function openViewer(photo, assets, onClose) {
   };
   window.__camposeViewer = state.debug;
   setMode('orbit');
+  frameAll();
   resize();
   canvas.focus();
   return state;

@@ -276,3 +276,20 @@ dialog::backdrop { background: rgba(5, 8, 12, .6); }
   .v-pip { bottom: auto; top: 110px; }
   .v-help { display: none; }
 }
+
+.v-find {
+  position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 3; border: 1px solid #5ee0d0;
+  background: rgba(14, 17, 24, .92); color: #e8ebf1; padding: 8px 14px; border-radius: 20px; font-weight: 650; cursor: pointer;
+}
+.v-help-card {
+  position: absolute; left: 50%; top: 60px; transform: translateX(-50%); z-index: 4; width: min(460px, 92vw);
+  background: rgba(14, 17, 24, .96); border: 1px solid rgba(255, 255, 255, .14); border-radius: 12px; padding: 12px 16px;
+  font-size: 12.5px; box-shadow: 0 12px 40px rgba(0, 0, 0, .5);
+}
+.v-help-card h4 { margin: 0 0 6px; font-size: 13px; }
+.v-help-card table { width: 100%; border-collapse: collapse; }
+.v-help-card th { text-align: left; color: #5ee0d0; font-size: 11.5px; padding: 8px 0 2px; text-transform: uppercase; letter-spacing: .04em; }
+.v-help-card td { padding: 2px 0; color: #d6dbe4; }
+.v-help-card td:last-child { color: #8b94a6; text-align: right; }
+.v-help-card p { color: #8b94a6; margin: 10px 0 0; }
+#vHelpBtn { width: 30px; height: 30px; font-size: 14px; }
