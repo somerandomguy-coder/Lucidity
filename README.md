@@ -1,4 +1,6 @@
-# CamPose Web
+# Lucidity
+
+_Camera pose from a single photo (formerly CamPose Web)._
 
 Find where the camera was from a photo of a person: tilt, roll, height relative to the
 subject's eyes and the ground, distance, side angle and lens. Everything runs in the browser
